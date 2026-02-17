@@ -30,18 +30,20 @@ jobs:
 
       - name: Publish to data branch
         run: |
+          # Save dist outside the repo before switching branches
+          cp -r dist /tmp/resort-data
+
           # Configure git
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Create orphan data branch with just the dist contents
+          # Create orphan data branch (clean slate)
           git checkout --orphan data
           git rm -rf . 2>/dev/null || true
           git clean -fd
 
-          # Move dist contents to root
-          mv dist/* .
-          rmdir dist
+          # Copy processed data back
+          cp /tmp/resort-data/* .
 
           # Commit and force-push (no history needed, keeps repo small)
           git add resort_index.json *.json.gz
