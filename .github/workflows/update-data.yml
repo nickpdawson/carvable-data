@@ -1,0 +1,47 @@
+# GitHub Actions workflow for carvable-data repo
+# Copy this file to .github/workflows/update-data.yml in the carvable-data repo
+
+name: Update Resort Data
+
+on:
+  schedule:
+    - cron: '0 4 * * *'  # Daily at 4am UTC
+  workflow_dispatch:       # Manual trigger
+
+jobs:
+  build-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download and process OpenSkiData
+        run: python3 Scripts/split_resorts.py --output dist
+
+      - name: Count output files
+        run: |
+          echo "Resort bundles: $(ls dist/*.json.gz 2>/dev/null | wc -l)"
+          echo "Index size: $(du -h dist/resort_index.json | cut -f1)"
+
+      - name: Create/update data release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Delete existing release if it exists
+          gh release delete data-latest --yes 2>/dev/null || true
+          git tag -d data-latest 2>/dev/null || true
+          git push origin :refs/tags/data-latest 2>/dev/null || true
+
+          # Create new release with all assets
+          gh release create data-latest \
+            --title "Resort Data ($(date -u +%Y-%m-%d))" \
+            --notes "Auto-generated from OpenSkiData. Updated $(date -u +%Y-%m-%dT%H:%M:%SZ)." \
+            dist/resort_index.json \
+            dist/*.json.gz
