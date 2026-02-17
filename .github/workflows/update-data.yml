@@ -1,6 +1,3 @@
-# GitHub Actions workflow for carvable-data repo
-# Copy this file to .github/workflows/update-data.yml in the carvable-data repo
-
 name: Update Resort Data
 
 on:
@@ -11,7 +8,7 @@ on:
 jobs:
   build-data:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
       contents: write
 
@@ -29,6 +26,7 @@ jobs:
         run: |
           echo "Resort bundles: $(ls dist/*.json.gz 2>/dev/null | wc -l)"
           echo "Index size: $(du -h dist/resort_index.json | cut -f1)"
+          echo "Total dist size: $(du -sh dist | cut -f1)"
 
       - name: Create/update data release
         env:
@@ -39,9 +37,30 @@ jobs:
           git tag -d data-latest 2>/dev/null || true
           git push origin :refs/tags/data-latest 2>/dev/null || true
 
-          # Create new release with all assets
+          # Create release with just the index first
           gh release create data-latest \
             --title "Resort Data ($(date -u +%Y-%m-%d))" \
             --notes "Auto-generated from OpenSkiData. Updated $(date -u +%Y-%m-%dT%H:%M:%SZ)." \
-            dist/resort_index.json \
-            dist/*.json.gz
+            dist/resort_index.json
+
+          # Upload resort bundles in batches of 50 to avoid rate limits
+          BATCH_SIZE=50
+          FILES=(dist/*.json.gz)
+          TOTAL=${#FILES[@]}
+          echo "Uploading $TOTAL resort bundles in batches of $BATCH_SIZE..."
+
+          for ((i=0; i<TOTAL; i+=BATCH_SIZE)); do
+            BATCH=("${FILES[@]:i:BATCH_SIZE}")
+            BATCH_NUM=$(( (i / BATCH_SIZE) + 1 ))
+            BATCH_COUNT=$(( (TOTAL + BATCH_SIZE - 1) / BATCH_SIZE ))
+            echo "Batch $BATCH_NUM/$BATCH_COUNT (${#BATCH[@]} files)..."
+
+            gh release upload data-latest "${BATCH[@]}" --clobber
+
+            # Pause between batches to respect rate limits
+            if (( i + BATCH_SIZE < TOTAL )); then
+              sleep 5
+            fi
+          done
+
+          echo "Done. Uploaded $TOTAL resort bundles."
